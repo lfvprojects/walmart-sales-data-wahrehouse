@@ -1,4 +1,4 @@
-# Walmart Data Warehouse with Postgres
+# Walmart Data Warehouse Project - README
 
 ## Introduction
 As a data engineer hired by a consumer electronics retail company, you have been tasked with designing and implementing a data warehouse to analyze sales performance and inventory management. This project will help in generating crucial reports to assess total sales revenue by different dimensions, such as city, year, product category, and store. 
@@ -19,39 +19,11 @@ This document outlines the steps taken to complete the project, covering dimensi
 - **ETL Tools**: Custom SQL scripts, Python (optional for automation)
 - **Reporting & Analytics**: PostgreSQL queries, BI tools (optional for visualization)
 
-## Data Model
-The data warehouse follows a **star schema**, which consists of a central fact table surrounded by multiple dimension tables.
+## Initial Schema Design
+The initial schema followed a **star schema** with the following tables:
 
-### **Dimension Tables**
-1. **MyDimDate** - Stores date-related attributes for time-based analysis.
-    - `dateid` (Primary Key)
-    - `year`
-    - `month`
-    - `monthname`
-    - `day`
-    - `weekday`
-    - `weekdayname`
-
-2. **MyDimProduct** - Stores product details, including category and type.
-    - `productid` (Primary Key)
-    - `productname`
-
-3. **MyDimCustomerSegment** - Categorizes customers based on segmentation criteria.
-    - `segmentid` (Primary Key)
-    - `segmentname`
-
-### **Fact Table**
-1. **MyFactSales** - Stores sales transactions with references to dimension tables.
-    - `salesid` (Primary Key)
-    - `productid` (Foreign Key to MyDimProduct)
-    - `quantitysold`
-    - `priceperunit`
-    - `segmentid` (Foreign Key to MyDimCustomerSegment)
-    - `dateid` (Foreign Key to MyDimDate)
-
-## Implementation Tasks
-
-### Create MyDimDate Table
+### **Initial Dimension Tables**
+#### MyDimDate Table
 ```sql
 CREATE TABLE MyDimDate (
     dateid INT PRIMARY KEY,
@@ -63,21 +35,23 @@ CREATE TABLE MyDimDate (
     weekdayname VARCHAR(20)
 );
 ```
-### Create MyDimProduct Table
+#### MyDimProduct Table
 ```sql
 CREATE TABLE MyDimProduct (
     productid INT PRIMARY KEY,
     productname VARCHAR(255)
 );
 ```
-### Create MyDimCustomerSegment Table
+#### MyDimCustomerSegment Table
 ```sql
 CREATE TABLE MyDimCustomerSegment (
     segmentid INT PRIMARY KEY,
     segmentname VARCHAR(255)
 );
 ```
-### Create MyFactSales Table
+
+### **Initial Fact Table**
+#### MyFactSales Table
 ```sql
 CREATE TABLE MyFactSales (
     salesid INT PRIMARY KEY,
@@ -89,66 +63,137 @@ CREATE TABLE MyFactSales (
 );
 ```
 
-### Load Data
-- Use SQL `INSERT` statements or `COPY` command for bulk loading.
-- Maintain referential integrity.
+## Project Update: Schema Redesign
+After the initial schema design, we were informed that data could not be collected in the format initially planned due to operational issues. This means that the previous tables (**MyDimDate, MyDimProduct, MyDimCustomerSegment, MyFactSales**) in the practice database and their associated attributes are no longer applicable to the current design. The company has now provided data in CSV files according to the new design. The updated schema and ETL process will now focus on integrating these CSV files into the data warehouse.
 
-### Create Aggregation Queries
-- **Grouping Sets Query**:
+## Redesigned Data Model
+The updated data warehouse schema consists of the following tables:
+
+### **Redesigned Dimension Tables**
+#### DimDate Table
 ```sql
-SELECT year, SUM(priceperunit * quantitysold) AS TotalRevenue
-FROM MyFactSales
-JOIN MyDimDate ON MyFactSales.dateid = MyDimDate.dateid
-GROUP BY GROUPING SETS ((year), (month), (year, month));
+CREATE TABLE DimDate (
+    Dateid INT PRIMARY KEY,
+    date DATE NOT NULL,
+    Year INT NOT NULL,
+    Quarter INT NOT NULL,
+    QuarterName VARCHAR(2) NOT NULL,
+    Month INT NOT NULL,
+    Monthname VARCHAR(255) NOT NULL,
+    Day INT NOT NULL,
+    Weekday INT NOT NULL,
+    WeekdayName VARCHAR(255) NOT NULL
+);
 ```
-- **Rollup Query**:
+#### DimProduct Table
 ```sql
-SELECT year, month, SUM(priceperunit * quantitysold) AS TotalRevenue
-FROM MyFactSales
-JOIN MyDimDate ON MyFactSales.dateid = MyDimDate.dateid
-GROUP BY ROLLUP (year, month);
+CREATE TABLE DimProduct (
+    Productid INT PRIMARY KEY,
+    Producttype VARCHAR(255) NOT NULL
+);
 ```
-- **Cube Query**:
+#### DimCustomerSegment Table
 ```sql
-SELECT year, month, productid, AVG(priceperunit * quantitysold) AS AvgRevenue
-FROM MyFactSales
-JOIN MyDimDate ON MyFactSales.dateid = MyDimDate.dateid
-GROUP BY CUBE (year, month, productid);
+CREATE TABLE DimCustomerSegment (
+    Segmentid INT PRIMARY KEY,
+    City VARCHAR(255) NOT NULL
+);
 ```
 
-### Create Materialized Views for Performance Optimization
+### **Redesigned Fact Table**
+#### FactSales Table
+```sql
+CREATE TABLE FactSales (
+    Salesid VARCHAR(255) PRIMARY KEY,
+    Dateid INT NOT NULL,
+    Productid INT NOT NULL,
+    Segmentid INT NOT NULL,
+    Price_PerUnit DECIMAL(10, 2) NOT NULL,
+    QuantitySold INT NOT NULL,
+    FOREIGN KEY (Dateid) REFERENCES DimDate(Dateid),
+    FOREIGN KEY (Productid) REFERENCES DimProduct(Productid),
+    FOREIGN KEY (Segmentid) REFERENCES DimCustomerSegment(Segmentid)
+);
+```
+
+## Data Integration and Loading
+- Load CSV data into the redesigned tables using the `COPY` command.
+- Maintain referential integrity while inserting data.
+
+### Example: Load CSV Data into DimDate
+```sql
+COPY DimDate(Dateid, date, Year, Quarter, QuarterName, Month, Monthname, Day, Weekday, WeekdayName)
+FROM '/path/to/dimdate.csv'
+DELIMITER ','
+CSV HEADER;
+```
+
+## Create Aggregation Queries
+- **Grouping Sets Query for Product Sales**:
+```sql
+SELECT
+    p.Productid,
+    p.Producttype,
+    SUM(f.Price_PerUnit * f.QuantitySold) AS TotalSales
+FROM
+    FactSales f
+INNER JOIN
+    DimProduct p ON f.Productid = p.Productid
+GROUP BY GROUPING SETS (
+    (p.Productid, p.Producttype),
+    p.Productid,
+    p.Producttype,
+    ()
+)
+ORDER BY
+    p.Productid,
+    p.Producttype;
+```
+- **Rollup Query for Year, City, and Product Sales**:
+```sql
+SELECT
+    d.Year,
+    cs.City,
+    p.Productid,
+    SUM(f.Price_PerUnit * f.QuantitySold) AS TotalSales 
+FROM
+    FactSales f
+JOIN
+    DimDate d ON f.Dateid = d.Dateid
+JOIN
+    DimProduct p ON f.Productid = p.Productid
+JOIN
+    DimCustomerSegment cs ON f.Segmentid = cs.Segmentid
+GROUP BY ROLLUP (d.Year, cs.City, p.Productid)
+ORDER BY
+    d.Year DESC,
+    cs.City,
+    p.Productid;
+```
+- **Materialized View for Maximum Sales**:
 ```sql
 CREATE MATERIALIZED VIEW max_sales AS
-SELECT city, productid, MAX(priceperunit * quantitysold) AS MaxSales
-FROM MyFactSales
-GROUP BY city, productid;
+SELECT
+    cs.City,
+    p.Productid,
+    p.Producttype,
+    MAX(f.Price_PerUnit * f.QuantitySold) AS MaxSales
+FROM
+    FactSales f
+JOIN
+    DimProduct p ON f.Productid = p.Productid
+JOIN
+    DimCustomerSegment cs ON f.Segmentid = cs.Segmentid
+GROUP BY
+    cs.City,
+    p.Productid,
+    p.Producttype
+WITH DATA;
 ```
-- Refresh materialized views periodically:
+- To refresh the materialized view with the latest data:
 ```sql
 REFRESH MATERIALIZED VIEW max_sales;
 ```
-
-## **Performance Optimization Techniques**
-1. **Indexes**:
-   - Create indexes on frequently queried columns.
-   - Example:
-   ```sql
-   CREATE INDEX idx_factsales_date ON MyFactSales(dateid);
-   ```
-2. **Partitioning**:
-   - Partition `MyFactSales` by year for faster querying.
-   ```sql
-   CREATE TABLE MyFactSales_2024 PARTITION OF MyFactSales
-   FOR VALUES IN (2024);
-   ```
-3. **Query Optimization**:
-   - Use `EXPLAIN ANALYZE` to identify slow queries.
-   - Optimize queries with proper joins and indexing.
-
-## **Scalability Considerations**
-- Use **parallel queries** to speed up large aggregations.
-- Implement **incremental data loading** to avoid reprocessing.
-- Consider **cloud-based solutions** for handling high-volume data.
 
 ## **Conclusion**
 This project demonstrates the design and implementation of a data warehouse for Walmart’s sales analytics using PostgreSQL. The structured data model, optimized queries, and materialized views provide a foundation for efficient and scalable analytical reporting. 
