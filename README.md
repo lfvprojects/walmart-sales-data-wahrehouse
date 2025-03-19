@@ -1,4 +1,4 @@
-# Walmart Data Warehouse Project - README
+# Walmart Data Warehouse with Postgres
 
 ## Introduction
 As a data engineer hired by a consumer electronics retail company, you have been tasked with designing and implementing a data warehouse to analyze sales performance and inventory management. This project will help in generating crucial reports to assess total sales revenue by different dimensions, such as city, year, product category, and store. 
